@@ -1,7 +1,6 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import asyncio
 import json
 import os
 
@@ -11,23 +10,24 @@ import os
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Role that is allowed to use /rewards
+# Staff role allowed to use /rewards
 REWARDS_ADMIN_ROLE_ID = 1547436901428891660
+
+# Invite log channel
+INVITE_LOG_CHANNEL_ID = 1542342156428255242
 
 # Reward roles
 FIVE_INVITE_ROLE = 1551687592678793246
 TEN_INVITE_ROLE = 1551687732953088091
 FIFTEEN_INVITE_ROLE = 1551688333443465347
-INVITE_LOG_CHANNEL_ID = 1542342156428255242
 
 # =========================================================
 # BOT SETUP
 # =========================================================
 
 intents = discord.Intents.default()
-intents.members = True
 intents.guilds = True
-intents.invites = True
+intents.members = True
 
 bot = commands.Bot(
     command_prefix="!",
@@ -35,7 +35,7 @@ bot = commands.Bot(
 )
 
 # =========================================================
-# INVITE DATA
+# DATA
 # =========================================================
 
 invite_data = {}
@@ -43,7 +43,7 @@ invite_cache = {}
 
 
 # =========================================================
-# LOAD / SAVE DATA
+# LOAD DATA
 # =========================================================
 
 def load_data():
@@ -53,193 +53,94 @@ def load_data():
         with open("invite_data.json", "r") as file:
             invite_data = json.load(file)
 
-        print("Invite data loaded.")
+        print("Invite data loaded successfully.")
 
     except FileNotFoundError:
         invite_data = {}
+        print("No invite data file found. Starting fresh.")
 
-
-def save_data():
-    with open("invite_data.json", "w") as file:
-        json.dump(invite_data, file, indent=4)
+    except json.JSONDecodeError:
+        invite_data = {}
+        print("Invite data file was corrupted. Starting fresh.")
 
 
 # =========================================================
-# GET USER INVITES
+# SAVE DATA
+# =========================================================
+
+def save_data():
+    try:
+        with open("invite_data.json", "w") as file:
+            json.dump(invite_data, file, indent=4)
+
+    except Exception as e:
+        print(f"Could not save invite data: {e}")
+
+
+# =========================================================
+# GET INVITES
 # =========================================================
 
 def get_invites(user_id):
-    return invite_data.get(str(user_id), 0)
+    return int(invite_data.get(str(user_id), 0))
 
 
 # =========================================================
-# ADD INVITE
+# GET NEXT REWARD
 # =========================================================
 
-async def add_invite(guild, user_id, invited_member=None):
+def get_next_reward(invites):
 
-    user_id = str(user_id)
-
-    if user_id not in invite_data:
-        invite_data[user_id] = 0
-
-    # Add the invite
-    invite_data[user_id] += 1
-
-    # Save permanently
-    save_data()
-
-    member = guild.get_member(int(user_id))
-
-    if not member:
-        return
-
-    invite_count = invite_data[user_id]
-
-    # Check and give rewards
-    await check_rewards(member)
-
-    # Find log channel
-    log_channel = guild.get_channel(INVITE_LOG_CHANNEL_ID)
-
-    if not log_channel:
-        print(
-            f"Could not find invite log channel: "
-            f"{INVITE_LOG_CHANNEL_ID}"
-        )
-        return
-
-    # -----------------------------------------------------
-    # DETERMINE NEXT REWARD
-    # -----------------------------------------------------
-
-    if invite_count < 5:
-
-        next_reward = (
-            f"🎟️ **$5 OFF** — "
-            f"{5 - invite_count} more invite(s)"
+    if invites < 5:
+        return (
+            "🎟️ **$5 OFF**\n"
+            f"**{5 - invites}** more invite(s) needed."
         )
 
-    elif invite_count < 10:
-
-        next_reward = (
-            f"💵 **$10 OFF** — "
-            f"{10 - invite_count} more invite(s)"
+    if invites < 10:
+        return (
+            "💵 **$10 OFF**\n"
+            f"**{10 - invites}** more invite(s) needed."
         )
 
-    elif invite_count < 15:
-
-        next_reward = (
-            f"🍽️ **FREE MEAL** — "
-            f"{15 - invite_count} more invite(s)"
+    if invites < 15:
+        return (
+            "🍽️ **FREE MEAL**\n"
+            f"**{15 - invites}** more invite(s) needed."
         )
 
-    else:
-
-        next_reward = "🍽️ **FREE MEAL** — Maximum reward reached!"
-
-    # -----------------------------------------------------
-    # CREATE LOG EMBED
-    # -----------------------------------------------------
-
-    embed = discord.Embed(
-        title="🎉 New Invite Detected!",
-        description=(
-            f"{member.mention} successfully invited "
-            f"a new member to the server!"
-        ),
-        color=discord.Color.green()
-    )
-
-    embed.add_field(
-        name="👤 Inviter",
-        value=(
-            f"{member.mention}\n"
-            f"`{member.id}`"
-        ),
-        inline=True
-    )
-
-    if invited_member:
-
-        embed.add_field(
-            name="🆕 New Member",
-            value=(
-                f"{invited_member.mention}\n"
-                f"`{invited_member.id}`"
-            ),
-            inline=True
-        )
-
-    embed.add_field(
-        name="🔢 Total Invites",
-        value=f"**{invite_count}**",
-        inline=True
-    )
-
-    embed.add_field(
-        name="🎁 Next Reward",
-        value=next_reward,
-        inline=False
-    )
-
-    # -----------------------------------------------------
-    # REWARD UNLOCK MESSAGE
-    # -----------------------------------------------------
-
-    if invite_count == 5:
-
-        embed.add_field(
-            name="🏆 Reward Unlocked!",
-            value=(
-                "🎟️ **$5 OFF**\n"
-                "The 5-invite reward role has been added!"
-            ),
-            inline=False
-        )
-
-    elif invite_count == 10:
-
-        embed.add_field(
-            name="🏆 Reward Unlocked!",
-            value=(
-                "💵 **$10 OFF**\n"
-                "The 10-invite reward role has been added!"
-            ),
-            inline=False
-        )
-
-    elif invite_count == 15:
-
-        embed.add_field(
-            name="🏆 Reward Unlocked!",
-            value=(
-                "🍽️ **FREE MEAL** 🔥\n"
-                "The FREE MEAL reward role has been added!"
-            ),
-            inline=False
-        )
-
-    embed.set_thumbnail(
-        url=member.display_avatar.url
-    )
-
-    embed.set_footer(
-        text="Invite Rewards • Invite tracking system"
-    )
-
-    await log_channel.send(
-        embed=embed
+    return (
+        "🏆 **FREE MEAL UNLOCKED!**\n"
+        "You've reached the maximum reward level."
     )
 
 
 # =========================================================
-# CHECK REWARDS
+# PROGRESS BAR
+# =========================================================
+
+def make_progress_bar(invites):
+
+    maximum = 15
+    bar_length = 20
+
+    percentage = min(invites, maximum) / maximum
+
+    filled = int(percentage * bar_length)
+    empty = bar_length - filled
+
+    return "█" * filled + "░" * empty
+
+
+# =========================================================
+# CHECK AND GIVE REWARDS
 # =========================================================
 
 async def check_rewards(member):
 
     invites = get_invites(member.id)
+
+    unlocked_rewards = []
 
     # -----------------------------------------------------
     # 5 INVITES
@@ -250,12 +151,15 @@ async def check_rewards(member):
         role = member.guild.get_role(FIVE_INVITE_ROLE)
 
         if role and role not in member.roles:
+
             try:
                 await member.add_roles(role)
+                unlocked_rewards.append("🎟️ **$5 OFF**")
 
             except discord.Forbidden:
                 print(
-                    f"Could not give 5 invite role to {member}"
+                    f"Missing permission to give 5-invite role "
+                    f"to {member}"
                 )
 
     # -----------------------------------------------------
@@ -267,12 +171,15 @@ async def check_rewards(member):
         role = member.guild.get_role(TEN_INVITE_ROLE)
 
         if role and role not in member.roles:
+
             try:
                 await member.add_roles(role)
+                unlocked_rewards.append("💵 **$10 OFF**")
 
             except discord.Forbidden:
                 print(
-                    f"Could not give 10 invite role to {member}"
+                    f"Missing permission to give 10-invite role "
+                    f"to {member}"
                 )
 
     # -----------------------------------------------------
@@ -284,17 +191,152 @@ async def check_rewards(member):
         role = member.guild.get_role(FIFTEEN_INVITE_ROLE)
 
         if role and role not in member.roles:
+
             try:
                 await member.add_roles(role)
+                unlocked_rewards.append("🍽️ **FREE MEAL**")
 
             except discord.Forbidden:
                 print(
-                    f"Could not give 15 invite role to {member}"
+                    f"Missing permission to give 15-invite role "
+                    f"to {member}"
                 )
+
+    return unlocked_rewards
 
 
 # =========================================================
-# CACHE INVITES
+# ADD INVITE
+# =========================================================
+
+async def add_invite(guild, inviter_id, invited_member):
+
+    user_id = str(inviter_id)
+
+    if user_id not in invite_data:
+        invite_data[user_id] = 0
+
+    # Add one successful invite
+    invite_data[user_id] += 1
+
+    # Save immediately
+    save_data()
+
+    inviter = guild.get_member(inviter_id)
+
+    if inviter is None:
+        return
+
+    new_total = get_invites(inviter.id)
+
+    # Give reward roles
+    unlocked_rewards = await check_rewards(inviter)
+
+    # Find log channel
+    log_channel = guild.get_channel(
+        INVITE_LOG_CHANNEL_ID
+    )
+
+    if log_channel is None:
+
+        print(
+            f"Invite log channel "
+            f"{INVITE_LOG_CHANNEL_ID} was not found."
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # CREATE LOG EMBED
+    # -----------------------------------------------------
+
+    embed = discord.Embed(
+        title="🎉 NEW INVITE DETECTED",
+        description=(
+            f"{inviter.mention} just invited "
+            f"{invited_member.mention} to the server!\n\n"
+            "The invite has been successfully counted "
+            "toward their reward progress."
+        ),
+        color=discord.Color.green()
+    )
+
+    embed.add_field(
+        name="👤 Inviter",
+        value=(
+            f"{inviter.mention}\n"
+            f"`{inviter.id}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🆕 New Member",
+        value=(
+            f"{invited_member.mention}\n"
+            f"`{invited_member.id}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🔢 Total Invites",
+        value=f"**{new_total}**",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 Progress",
+        value=(
+            f"`{make_progress_bar(new_total)}`\n"
+            f"**{min(new_total, 15)}/15 invites**"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎁 Next Reward",
+        value=get_next_reward(new_total),
+        inline=False
+    )
+
+    # -----------------------------------------------------
+    # REWARD UNLOCKED
+    # -----------------------------------------------------
+
+    if unlocked_rewards:
+
+        embed.add_field(
+            name="🏆 REWARD UNLOCKED!",
+            value=(
+                "Congratulations!\n\n"
+                + "\n".join(unlocked_rewards)
+                + "\n\nThe reward role has been automatically "
+                "added to their account."
+            ),
+            inline=False
+        )
+
+    embed.set_thumbnail(
+        url=inviter.display_avatar.url
+    )
+
+    embed.set_footer(
+        text="Invite Rewards System • Automatic Tracking"
+    )
+
+    try:
+        await log_channel.send(embed=embed)
+
+    except discord.Forbidden:
+        print(
+            "Bot does not have permission to send messages "
+            "in the invite log channel."
+        )
+
+
+# =========================================================
+# CACHE SERVER INVITES
 # =========================================================
 
 async def cache_guild_invites(guild):
@@ -309,14 +351,21 @@ async def cache_guild_invites(guild):
         }
 
         print(
-            f"Cached {len(invites)} invites for {guild.name}"
+            f"Cached {len(invites)} invites "
+            f"for {guild.name}"
         )
 
     except discord.Forbidden:
 
         print(
-            f"Cannot view invites in {guild.name}. "
-            "Make sure the bot has Manage Server."
+            f"Cannot access invites for {guild.name}."
+        )
+
+    except Exception as e:
+
+        print(
+            f"Error caching invites for "
+            f"{guild.name}: {e}"
         )
 
 
@@ -329,12 +378,12 @@ async def on_ready():
 
     load_data()
 
-    print("--------------------------------------")
-    print(f"Logged in as {bot.user}")
+    print("----------------------------------------")
+    print(f"Bot logged in as: {bot.user}")
     print(f"Bot ID: {bot.user.id}")
-    print("--------------------------------------")
+    print("----------------------------------------")
 
-    # Cache invites for every server
+    # Cache invites
     for guild in bot.guilds:
         await cache_guild_invites(guild)
 
@@ -344,13 +393,14 @@ async def on_ready():
         synced = await bot.tree.sync()
 
         print(
-            f"Synced {len(synced)} slash commands."
+            f"Successfully synced "
+            f"{len(synced)} slash commands."
         )
 
     except Exception as e:
 
         print(
-            f"Slash command sync error: {e}"
+            f"Slash command sync failed: {e}"
         )
 
 
@@ -365,8 +415,10 @@ async def on_member_join(member):
 
     try:
 
-        new_invites = await guild.invites()
+        # Get current invites
+        current_invites = await guild.invites()
 
+        # Get old cached invites
         old_invites = invite_cache.get(
             guild.id,
             {}
@@ -374,8 +426,8 @@ async def on_member_join(member):
 
         inviter = None
 
-        # Find the invite whose use count increased
-        for invite in new_invites:
+        # Find which invite increased
+        for invite in current_invites:
 
             old_uses = old_invites.get(
                 invite.code,
@@ -387,36 +439,47 @@ async def on_member_join(member):
                 inviter = invite.inviter
                 break
 
-        # Update invite cache
+        # Update cache
         invite_cache[guild.id] = {
             invite.code: invite.uses
-            for invite in new_invites
+            for invite in current_invites
         }
 
-        # No inviter found
+        # Could not determine inviter
         if inviter is None:
 
             print(
                 f"Could not determine inviter for "
-                f"{member}"
+                f"{member}."
             )
 
             return
 
-        # Don't count self-invites
+        # Prevent self-invite counting
         if inviter.id == member.id:
+
+            print(
+                f"Self-invite detected for {member}."
+            )
+
             return
 
-        # Add invite
-await add_invite(
-    guild,
-    inviter.id,
-    member
-)
+        # Add the successful invite
+        await add_invite(
+            guild,
+            inviter.id,
+            member
         )
 
         print(
-            f"{inviter} invited {member}"
+            f"{inviter} invited {member}."
+        )
+
+    except discord.Forbidden:
+
+        print(
+            f"Missing permission to read invites "
+            f"in {guild.name}."
         )
 
     except Exception as e:
@@ -434,91 +497,52 @@ await add_invite(
     name="invites",
     description="Check your invite count and reward progress."
 )
-async def invites_command(interaction: discord.Interaction):
+async def invites_command(
+    interaction: discord.Interaction
+):
 
     member = interaction.user
 
     invites = get_invites(member.id)
 
-    # Determine next reward
-    if invites < 5:
-
-        next_amount = 5
-        remaining = 5 - invites
-        reward = "$5 OFF"
-
-    elif invites < 10:
-
-        next_amount = 10
-        remaining = 10 - invites
-        reward = "$10 OFF"
-
-    elif invites < 15:
-
-        next_amount = 15
-        remaining = 15 - invites
-        reward = "FREE MEAL"
-
-    else:
-
-        next_amount = 15
-        remaining = 0
-        reward = "FREE MEAL — YOU REACHED THE MAX REWARD!"
-
-    # Progress bar
-    if invites >= 15:
-
-        progress = "████████████████████"
-
-    else:
-
-        progress_length = 20
-        filled = int(
-            min(invites, 15) / 15 * progress_length
-        )
-
-        progress = (
-            "█" * filled +
-            "░" * (progress_length - filled)
-        )
+    progress = make_progress_bar(invites)
 
     embed = discord.Embed(
-        title="🎟️ Your Invite Rewards",
+        title="🎟️ YOUR INVITE REWARDS",
         description=(
-            f"Hey {member.mention}! Here's your current "
-            f"invite progress.\n\n"
-            "Invite friends to the server and unlock "
-            "exclusive rewards."
+            f"Welcome, {member.mention}! 👋\n\n"
+            "This is your personal invite progress. "
+            "Keep inviting new members to unlock "
+            "bigger rewards.\n\n"
+            "Your invites are tracked automatically "
+            "whenever someone joins through your invite."
         ),
         color=discord.Color.blurple()
     )
 
     embed.add_field(
-        name="👥 Your Invites",
-        value=f"**{invites}** successful invite(s)",
+        name="👥 Successful Invites",
+        value=f"**{invites}**",
         inline=True
     )
 
     embed.add_field(
         name="🎁 Next Reward",
-        value=(
-            f"**{reward}**\n"
-            f"{remaining} more invite(s)"
-        ),
+        value=get_next_reward(invites),
         inline=True
     )
 
     embed.add_field(
-        name="📊 Progress",
+        name="📊 Overall Progress",
         value=(
             f"`{progress}`\n"
-            f"**{invites}/15 invites**"
+            f"**{min(invites, 15)}/15 invites**"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="🏆 Reward Levels",
+        name="🏆 REWARD LEVELS",
         value=(
             "🎟️ **5 Invites** → **$5 OFF**\n"
             "💵 **10 Invites** → **$10 OFF**\n"
@@ -527,8 +551,23 @@ async def invites_command(interaction: discord.Interaction):
         inline=False
     )
 
+    if invites >= 15:
+
+        embed.add_field(
+            name="🔥 MAX REWARD REACHED!",
+            value=(
+                "You've reached **15 invites** and "
+                "unlocked the **FREE MEAL** reward!"
+            ),
+            inline=False
+        )
+
+    embed.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
     embed.set_footer(
-        text="Invite real members • Earn rewards • Enjoy the perks!"
+        text="Invite Rewards • Use /help to learn more"
     )
 
     await interaction.response.send_message(
@@ -545,36 +584,52 @@ async def invites_command(interaction: discord.Interaction):
     name="rewards",
     description="Display the server invite reward information."
 )
-async def rewards_command(interaction: discord.Interaction):
+async def rewards_command(
+    interaction: discord.Interaction
+):
 
     member = interaction.user
 
-    # Check admin/staff role
-    role = interaction.guild.get_role(
-        REWARDS_ADMIN_ROLE_ID
-    )
-
-    if role not in member.roles:
+    # Check server
+    if interaction.guild is None:
 
         await interaction.response.send_message(
-            "❌ You do not have permission to use this command.",
+            "❌ This command can only be used inside the server.",
             ephemeral=True
         )
 
         return
 
-    # Main embed
+    # Get required staff role
+    staff_role = interaction.guild.get_role(
+        REWARDS_ADMIN_ROLE_ID
+    )
+
+    # Check permission
+    if staff_role is None or staff_role not in member.roles:
+
+        await interaction.response.send_message(
+            "❌ You do not have permission to use `/rewards`.",
+            ephemeral=True
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # REWARDS EMBED
+    # -----------------------------------------------------
+
     embed = discord.Embed(
         title="🎉 INVITE REWARDS PROGRAM",
         description=(
             "## 🚀 Invite Friends. Earn Rewards.\n\n"
-            "Want to save money or earn a **FREE MEAL**? "
-            "Invite people to the server and climb through "
-            "the reward levels!\n\n"
-            "Every successful invite brings you closer to "
-            "your next reward. Your progress is tracked "
-            "automatically by the bot.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "Invite new members to the server and earn "
+            "exclusive rewards based on how many successful "
+            "invites you make.\n\n"
+            "Your invite count is tracked automatically. "
+            "Once you reach a reward level, the appropriate "
+            "role will be added to you automatically.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         color=discord.Color.gold()
     )
@@ -582,11 +637,10 @@ async def rewards_command(interaction: discord.Interaction):
     embed.add_field(
         name="🎟️ LEVEL 1 — 5 INVITES",
         value=(
-            "**Reward: $5 OFF**\n\n"
-            "Invite **5 people** who successfully join "
-            "the server and you'll receive the **$5 OFF** "
-            "reward role automatically.\n\n"
-            f"Role: <@&{FIVE_INVITE_ROLE}>"
+            "### 💵 $5 OFF\n\n"
+            "Reach **5 successful invites** and receive "
+            "the **$5 OFF** reward.\n\n"
+            f"🎟️ Reward Role: <@&{FIVE_INVITE_ROLE}>"
         ),
         inline=False
     )
@@ -594,10 +648,10 @@ async def rewards_command(interaction: discord.Interaction):
     embed.add_field(
         name="💵 LEVEL 2 — 10 INVITES",
         value=(
-            "**Reward: $10 OFF**\n\n"
-            "Reach **10 successful invites** and unlock "
+            "### 💰 $10 OFF\n\n"
+            "Reach **10 successful invites** and receive "
             "the **$10 OFF** reward.\n\n"
-            f"Role: <@&{TEN_INVITE_ROLE}>"
+            f"💵 Reward Role: <@&{TEN_INVITE_ROLE}>"
         ),
         inline=False
     )
@@ -605,10 +659,10 @@ async def rewards_command(interaction: discord.Interaction):
     embed.add_field(
         name="🍽️ LEVEL 3 — 15 INVITES",
         value=(
-            "**Reward: FREE MEAL** 🔥\n\n"
+            "### 🔥 FREE MEAL\n\n"
             "Reach **15 successful invites** and unlock "
-            "the **FREE MEAL** reward role.\n\n"
-            f"Role: <@&{FIFTEEN_INVITE_ROLE}>"
+            "the **FREE MEAL** reward.\n\n"
+            f"🍽️ Reward Role: <@&{FIFTEEN_INVITE_ROLE}>"
         ),
         inline=False
     )
@@ -616,13 +670,26 @@ async def rewards_command(interaction: discord.Interaction):
     embed.add_field(
         name="📌 HOW IT WORKS",
         value=(
-            "1️⃣ Create or use your personal Discord invite.\n"
-            "2️⃣ Send your invite to your friends.\n"
-            "3️⃣ They join the server through your invite.\n"
-            "4️⃣ The bot automatically tracks the invite.\n"
-            "5️⃣ Reach a reward level and receive the role.\n\n"
-            "Use **/invites** at any time to see your "
-            "current progress."
+            "1️⃣ Create your Discord invite.\n"
+            "2️⃣ Share it with your friends.\n"
+            "3️⃣ Your friend joins the server.\n"
+            "4️⃣ The bot detects which invite they used.\n"
+            "5️⃣ Your invite total increases automatically.\n"
+            "6️⃣ Your reward role is automatically added "
+            "when you reach a milestone.\n\n"
+            "Use **/invites** to check your progress."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📈 TRACK YOUR PROGRESS",
+        value=(
+            "Use `/invites` anytime to see:\n\n"
+            "👥 Your total successful invites\n"
+            "📊 Your progress toward 15 invites\n"
+            "🎁 Your next available reward\n"
+            "🏆 Your reward levels"
         ),
         inline=False
     )
@@ -630,23 +697,22 @@ async def rewards_command(interaction: discord.Interaction):
     embed.add_field(
         name="⚠️ IMPORTANT",
         value=(
-            "Only **successful server joins** count toward "
-            "your invite total. The system is designed to "
-            "track actual invites rather than simply "
-            "creating invite links."
+            "Only actual members joining the server through "
+            "your invite count toward your total. Creating "
+            "invite links by itself does not increase your "
+            "invite count."
         ),
         inline=False
     )
 
-    embed.set_footer(
-        text="Invite more • Unlock more • Enjoy your rewards 🎉"
-    )
+    if interaction.guild.icon:
 
-    # Optional thumbnail
-    embed.set_thumbnail(
-        url=interaction.guild.icon.url
-        if interaction.guild.icon
-        else discord.Embed.Empty
+        embed.set_thumbnail(
+            url=interaction.guild.icon.url
+        )
+
+    embed.set_footer(
+        text="Invite Rewards System • Invite • Earn • Enjoy"
     )
 
     await interaction.response.send_message(
@@ -662,15 +728,18 @@ async def rewards_command(interaction: discord.Interaction):
     name="help",
     description="Learn how the invite reward system works."
 )
-async def help_command(interaction: discord.Interaction):
+async def help_command(
+    interaction: discord.Interaction
+):
 
     embed = discord.Embed(
-        title="📖 Invite Rewards Help",
+        title="📖 INVITE REWARDS HELP",
         description=(
-            "Welcome to the **Invite Rewards System**!\n\n"
-            "You can earn rewards simply by inviting new "
-            "members to the server.\n\n"
-            "Below you'll find everything you need to know."
+            "Welcome to the **Invite Rewards System**! 🎉\n\n"
+            "This system lets you earn rewards by bringing "
+            "new members into the server.\n\n"
+            "Your successful invites are automatically "
+            "tracked by the bot."
         ),
         color=discord.Color.blurple()
     )
@@ -679,29 +748,28 @@ async def help_command(interaction: discord.Interaction):
         name="🔎 How do I check my invites?",
         value=(
             "Use **/invites**.\n\n"
-            "The bot will show your total invites, your "
-            "current progress bar, your next reward, and "
-            "how many more people you need to invite."
+            "You'll see your total invites, progress bar, "
+            "next reward, and all available reward levels."
         ),
         inline=False
     )
 
     embed.add_field(
-        name="🎟️ What are the rewards?",
+        name="🎁 What can I earn?",
         value=(
-            "**5 Invites** → 💵 **$5 OFF**\n"
-            "**10 Invites** → 💵 **$10 OFF**\n"
-            "**15 Invites** → 🍽️ **FREE MEAL**"
+            "🎟️ **5 Invites** → **$5 OFF**\n"
+            "💵 **10 Invites** → **$10 OFF**\n"
+            "🍽️ **15 Invites** → **FREE MEAL**"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="🤖 How does tracking work?",
+        name="🤖 How does invite tracking work?",
         value=(
-            "When someone joins through your Discord invite, "
-            "the bot checks which invite was used and adds "
-            "the successful invite to your total."
+            "When somebody joins the server, the bot checks "
+            "which invite was used. If your invite was used, "
+            "your successful invite count goes up by 1."
         ),
         inline=False
     )
@@ -709,25 +777,36 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="🏆 What happens when I reach a reward?",
         value=(
-            "Your reward role is automatically added when "
-            "you reach the required number of successful "
-            "invites."
+            "You don't have to ask staff for the role. "
+            "The bot automatically gives you the appropriate "
+            "reward role once you reach the required number "
+            "of successful invites."
         ),
         inline=False
     )
 
     embed.add_field(
-        name="📈 Want to keep earning?",
+        name="📊 Want to see your progress?",
         value=(
-            "Keep inviting new members! Once you reach "
-            "**15 invites**, you've unlocked the current "
-            "**FREE MEAL** reward."
+            "Type **/invites** whenever you want to see "
+            "exactly how close you are to the next reward."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="💡 Quick Example",
+        value=(
+            "If you currently have **4 invites** and one "
+            "more person joins using your invite, you'll "
+            "reach **5 invites** and unlock the **$5 OFF** "
+            "reward."
         ),
         inline=False
     )
 
     embed.set_footer(
-        text="Use /invites to check your progress anytime."
+        text="Invite more members • Unlock more rewards 🎉"
     )
 
     await interaction.response.send_message(
@@ -737,7 +816,7 @@ async def help_command(interaction: discord.Interaction):
 
 
 # =========================================================
-# ERROR HANDLING
+# COMMAND ERROR HANDLER
 # =========================================================
 
 @bot.tree.error
@@ -746,28 +825,23 @@ async def on_app_command_error(
     error
 ):
 
-    if isinstance(
-        error,
-        app_commands.CommandOnCooldown
-    ):
+    print(
+        f"Slash command error: {error}"
+    )
+
+    if interaction.response.is_done():
+        return
+
+    try:
 
         await interaction.response.send_message(
-            "⏳ Please wait before using that command again.",
+            "❌ Something went wrong while running "
+            "that command.",
             ephemeral=True
         )
 
-    else:
-
-        print(
-            f"Command error: {error}"
-        )
-
-        if not interaction.response.is_done():
-
-            await interaction.response.send_message(
-                "❌ Something went wrong while running that command.",
-                ephemeral=True
-            )
+    except Exception:
+        pass
 
 
 # =========================================================
