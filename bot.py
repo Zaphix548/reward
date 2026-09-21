@@ -18,6 +18,7 @@ REWARDS_ADMIN_ROLE_ID = 1547436901428891660
 FIVE_INVITE_ROLE = 1551687592678793246
 TEN_INVITE_ROLE = 1551687732953088091
 FIFTEEN_INVITE_ROLE = 1551688333443465347
+INVITE_LOG_CHANNEL_ID = 1542342156428255242
 
 # =========================================================
 # BOT SETUP
@@ -75,21 +76,161 @@ def get_invites(user_id):
 # ADD INVITE
 # =========================================================
 
-async def add_invite(guild, user_id):
+async def add_invite(guild, user_id, invited_member=None):
 
     user_id = str(user_id)
 
     if user_id not in invite_data:
         invite_data[user_id] = 0
 
+    # Add the invite
     invite_data[user_id] += 1
 
+    # Save permanently
     save_data()
 
     member = guild.get_member(int(user_id))
 
-    if member:
-        await check_rewards(member)
+    if not member:
+        return
+
+    invite_count = invite_data[user_id]
+
+    # Check and give rewards
+    await check_rewards(member)
+
+    # Find log channel
+    log_channel = guild.get_channel(INVITE_LOG_CHANNEL_ID)
+
+    if not log_channel:
+        print(
+            f"Could not find invite log channel: "
+            f"{INVITE_LOG_CHANNEL_ID}"
+        )
+        return
+
+    # -----------------------------------------------------
+    # DETERMINE NEXT REWARD
+    # -----------------------------------------------------
+
+    if invite_count < 5:
+
+        next_reward = (
+            f"🎟️ **$5 OFF** — "
+            f"{5 - invite_count} more invite(s)"
+        )
+
+    elif invite_count < 10:
+
+        next_reward = (
+            f"💵 **$10 OFF** — "
+            f"{10 - invite_count} more invite(s)"
+        )
+
+    elif invite_count < 15:
+
+        next_reward = (
+            f"🍽️ **FREE MEAL** — "
+            f"{15 - invite_count} more invite(s)"
+        )
+
+    else:
+
+        next_reward = "🍽️ **FREE MEAL** — Maximum reward reached!"
+
+    # -----------------------------------------------------
+    # CREATE LOG EMBED
+    # -----------------------------------------------------
+
+    embed = discord.Embed(
+        title="🎉 New Invite Detected!",
+        description=(
+            f"{member.mention} successfully invited "
+            f"a new member to the server!"
+        ),
+        color=discord.Color.green()
+    )
+
+    embed.add_field(
+        name="👤 Inviter",
+        value=(
+            f"{member.mention}\n"
+            f"`{member.id}`"
+        ),
+        inline=True
+    )
+
+    if invited_member:
+
+        embed.add_field(
+            name="🆕 New Member",
+            value=(
+                f"{invited_member.mention}\n"
+                f"`{invited_member.id}`"
+            ),
+            inline=True
+        )
+
+    embed.add_field(
+        name="🔢 Total Invites",
+        value=f"**{invite_count}**",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🎁 Next Reward",
+        value=next_reward,
+        inline=False
+    )
+
+    # -----------------------------------------------------
+    # REWARD UNLOCK MESSAGE
+    # -----------------------------------------------------
+
+    if invite_count == 5:
+
+        embed.add_field(
+            name="🏆 Reward Unlocked!",
+            value=(
+                "🎟️ **$5 OFF**\n"
+                "The 5-invite reward role has been added!"
+            ),
+            inline=False
+        )
+
+    elif invite_count == 10:
+
+        embed.add_field(
+            name="🏆 Reward Unlocked!",
+            value=(
+                "💵 **$10 OFF**\n"
+                "The 10-invite reward role has been added!"
+            ),
+            inline=False
+        )
+
+    elif invite_count == 15:
+
+        embed.add_field(
+            name="🏆 Reward Unlocked!",
+            value=(
+                "🍽️ **FREE MEAL** 🔥\n"
+                "The FREE MEAL reward role has been added!"
+            ),
+            inline=False
+        )
+
+    embed.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
+    embed.set_footer(
+        text="Invite Rewards • Invite tracking system"
+    )
+
+    await log_channel.send(
+        embed=embed
+    )
 
 
 # =========================================================
@@ -267,9 +408,11 @@ async def on_member_join(member):
             return
 
         # Add invite
-        await add_invite(
-            guild,
-            inviter.id
+await add_invite(
+    guild,
+    inviter.id,
+    member
+)
         )
 
         print(
